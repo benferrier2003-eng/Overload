@@ -70,6 +70,11 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
 .cell.today{box-shadow:0 0 0 3px var(--accent)}
 .cell.sel{outline:3px solid var(--ink);outline-offset:1px}
 .cell.blank{visibility:hidden}
+.cell{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.cell.moved{border-style:dashed;border-color:var(--ink)}
+.cell.lift{opacity:.35}
+.cell.drop{outline:3px dashed var(--ink);outline-offset:1px}
+.ghost{position:fixed;z-index:50;pointer-events:none;padding:6px 12px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:700 15px Barlow,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.3);transform:translate(-50%,-130%)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--mute)}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid var(--line)}
 .logline{padding:8px 0;border-top:1px solid var(--line)}
@@ -212,7 +217,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---------- state ---------- */
-let S={pin:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
+let S={over:{},pin:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
 try{const r=localStorage.getItem(KEY);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
 let syncT=null;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}syncSoon()}
@@ -366,7 +371,7 @@ async function syncNow(){
   if(!CLOUD||!S.pin||!S.name||!S.plan)return;
   setSync("Saving…");
   try{
-    const r=await rpc("save_client",{p_name:S.name,p_pin:S.pin,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,logs:S.logs.slice(-500)}});
+    const r=await rpc("save_client",{p_name:S.name,p_pin:S.pin,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,over:S.over||{},logs:S.logs.slice(-500)}});
     if(r.status==="wrong"){setSync("This name is already in use with a different PIN.");return}
     if(r.status==="locked"){setSync("Too many wrong PINs. Try again in 10 minutes.");return}
     S.advice=r.advice?{text:r.advice,at:r.advice_at}:null;
@@ -425,7 +430,7 @@ $("#nameForm").addEventListener("submit",async e=>{
       if(r.status==="locked"){msg.textContent="Too many wrong tries. Try again in 10 minutes.";return}
       if(r.status==="ok"){
         const d=r.data||{};
-        S=Object.assign(S,{name:r.name||v,pin:pin,gender:d.gender||"Female",age:d.age||25,n:d.n||3,unit:d.unit||"lb",plan:d.plan||null,logs:d.logs||[],lastDay:-1,advice:r.advice?{text:r.advice,at:r.advice_at}:null});
+        S=Object.assign(S,{name:r.name||v,pin:pin,gender:d.gender||"Female",age:d.age||25,n:d.n||3,unit:d.unit||"lb",plan:d.plan||null,over:d.over||{},logs:d.logs||[],lastDay:-1,advice:r.advice?{text:r.advice,at:r.advice_at}:null});
         try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
         WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}
         msg.textContent="";
@@ -435,6 +440,8 @@ $("#nameForm").addEventListener("submit",async e=>{
     finally{btn.disabled=false}
   }
   msg.textContent="";draft.name=v;draft.pin=pin;
+  const nk=x=>String(x||"").trim().replace(/\s+/g," ").toLowerCase();
+  if(S.name&&nk(S.name)!==nk(v)){S.logs=[];S.plan=null;S.over={};S.advice=null;S.lastDay=-1;WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}}
   $("#hiName").textContent="Hi, "+v.split(" ")[0]+". Tell us about you.";
   $("#newNote").textContent="Creating a new account for "+v+". If you’ve trained here before, go back and check how your name is spelled.";
   $("#gender").value=S.gender;$("#age").value=S.age;$("#days").value=S.n;
@@ -450,15 +457,34 @@ $("#bodyForm").addEventListener("submit",e=>{
 $("#s3back").addEventListener("click",()=>setPane(2));
 $("#startBtn").addEventListener("click",()=>{
   S.name=draft.name||S.name;S.pin=draft.pin||S.pin;S.gender=draft.gender;S.age=draft.age;S.n=draft.n;
-  S.plan=makePlan(S.n);S.lastDay=-1;
+  S.plan=makePlan(S.n);S.lastDay=-1;S.over={};
   WK=null;CAL.sel=today();save();enterApp();
 });
 
 /* ---------- calendar ---------- */
+const baseIdx=d=>S.plan?WD[S.plan.n].indexOf(d.getDay()):-1;
 function planFor(date){
   if(!S.plan)return null;
-  const i=WD[S.plan.n].indexOf(date.getDay());
-  return i<0?null:{i:i,day:S.plan.days[i]};
+  const o=S.over&&S.over[iso(date)];
+  const i=o!==undefined?o:baseIdx(date);
+  return i<0?null:{i:i,day:S.plan.days[i],moved:o!==undefined};
+}
+function dayAt(s){const o=S.over&&S.over[s];return o!==undefined?o:baseIdx(parse(s))}
+function setOv(s,idx){S.over=S.over||{};if(idx===baseIdx(parse(s)))delete S.over[s];else S.over[s]=idx}
+function canMove(from,to){
+  if(!S.plan||!from||!to||from===to)return false;
+  const by=logsByDate();
+  return !by[from]&&!by[to]&&dayAt(from)>=0;
+}
+function moveDay(from,to){
+  if(!canMove(from,to))return false;
+  const a=dayAt(from),b=dayAt(to);
+  setOv(from,b);setOv(to,a);
+  CAL.sel=to;const t=parse(to);CAL.y=t.getFullYear();CAL.m=t.getMonth();
+  save();renderCal();return true;
+}
+function moveCtl(s){
+  return '<div style="margin-top:14px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap"><label style="flex:1;min-width:150px">Move this workout to<input id="mvDate" type="date" value="'+s+'"></label><button class="btn ghost" data-act="move" type="button">Move</button></div><p class="msg" id="mvMsg" aria-live="polite" style="margin:6px 0 0"></p>';
 }
 function logsByDate(){const by={};S.logs.forEach(l=>{(by[l.d]=by[l.d]||[]).push(l)});return by}
 function renderCal(){
@@ -479,11 +505,11 @@ function renderCal(){
     const dt=new Date(CAL.y,CAL.m,d),s=iso(dt),p=planFor(dt),isDone=!!by[s];
     const cls=["cell"];let sub="";
     if(isDone){cls.push("done");sub="✓"}
-    else if(p){cls.push("plan");sub=short(p.day.label);if(s<ts)cls.push("miss")}
+    else if(p){cls.push("plan");sub=short(p.day.label);if(s<ts)cls.push("miss");if(p.moved)cls.push("moved")}
     if(s===ts)cls.push("today");if(s===CAL.sel)cls.push("sel");
-    h+='<button type="button" class="'+cls.join(" ")+'" data-date="'+s+'" aria-label="'+esc(fdate(dt,{weekday:"long",month:"long",day:"numeric"}))+(isDone?", workout done":p?", "+esc(p.day.label)+" planned":", rest day")+'"><span>'+d+"</span><small>"+esc(sub)+"</small></button>";
+    h+='<button type="button" class="'+cls.join(" ")+'" data-date="'+s+'" data-label="'+esc(p?short(p.day.label):"")+'" aria-label="'+esc(fdate(dt,{weekday:"long",month:"long",day:"numeric"}))+(isDone?", workout done":p?", "+esc(p.day.label)+" planned":", rest day")+'"><span>'+d+"</span><small>"+esc(sub)+"</small></button>";
   }
-  h+='</div><div class="legend"><span><i style="background:var(--soft);border-color:var(--accent)"></i>Planned</span><span><i style="background:var(--good);border-color:var(--good)"></i>Done</span><span><i style="box-shadow:0 0 0 2px var(--accent)"></i>Today</span></div></div>';
+  h+='</div><div class="legend"><span><i style="background:var(--soft);border-color:var(--accent)"></i>Planned</span><span><i style="background:var(--good);border-color:var(--good)"></i>Done</span><span><i style="box-shadow:0 0 0 2px var(--accent)"></i>Today</span><span><i style="border-style:dashed;border-color:var(--ink)"></i>Moved</span></div><p class="mute" style="margin:10px 0 0">Tip: press and hold a planned day, then drag it to another date. Drop it on another planned day to swap them.'+(Object.keys(S.over||{}).length?' <button class="linkbtn" data-act="resetmoves" type="button">Reset all moves</button>':"")+'</p></div>';
   h+='<div class="card" id="dayPanel"></div>';
   $("#v-cal").innerHTML=h;renderDay();
 }
@@ -495,9 +521,9 @@ function renderDay(){
     h+=(p?'<p class="mute" style="margin:0 0 6px">Day '+(p.i+1)+": "+esc(p.day.label)+"</p>":"")+groupLogs(by[s]).map(g=>'<div class="logline"><b>'+esc(g.lift)+'</b><br><span class="mute">'+g.sets.map(x=>fmt(x.w)+" "+S.unit+" × "+x.r).join(", ")+"</span></div>").join("");
     h+='<button class="btn" data-act="open" data-date="'+s+'" type="button">Add more sets</button>';
   }else if(p&&s<=ts){
-    h+='<p class="mute" style="margin:0 0 4px">Day '+(p.i+1)+": "+esc(p.day.label)+(s<ts?" (not logged)":"")+'</p><ul class="ex">'+D[p.day.key].map(x=>{const q=x.split("|");return "<li><span>"+esc(q[0])+"</span><span>"+q[1]+"</span></li>"}).join("")+'</ul><button class="btn" data-act="open" data-date="'+s+'" type="button">'+(s===ts?"Start workout":"Log this workout")+"</button>";
+    h+='<p class="mute" style="margin:0 0 4px">Day '+(p.i+1)+": "+esc(p.day.label)+(s<ts?" (not logged)":"")+'</p><ul class="ex">'+D[p.day.key].map(x=>{const q=x.split("|");return "<li><span>"+esc(q[0])+"</span><span>"+q[1]+"</span></li>"}).join("")+'</ul><button class="btn" data-act="open" data-date="'+s+'" type="button">'+(s===ts?"Start workout":"Log this workout")+"</button>"+moveCtl(s);
   }else if(p){
-    h+='<p class="mute" style="margin:0 0 4px">Planned: Day '+(p.i+1)+", "+esc(p.day.label)+'</p><ul class="ex">'+D[p.day.key].map(x=>{const q=x.split("|");return "<li><span>"+esc(q[0])+"</span><span>"+q[1]+"</span></li>"}).join("")+"</ul>";
+    h+='<p class="mute" style="margin:0 0 4px">Planned: Day '+(p.i+1)+", "+esc(p.day.label)+'</p><ul class="ex">'+D[p.day.key].map(x=>{const q=x.split("|");return "<li><span>"+esc(q[0])+"</span><span>"+q[1]+"</span></li>"}).join("")+"</ul>"+moveCtl(s);
   }else{
     h+='<p class="empty">Rest day. Recovery is when you actually build muscle.</p>'+(s<=ts?'<button class="btn ghost" data-act="open" data-date="'+s+'" type="button" style="margin-top:8px">Log a workout anyway</button>':"");
   }
@@ -505,10 +531,61 @@ function renderDay(){
 }
 $("#v-cal").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
+  if(Date.now()-noClick<400)return;
+  if(b.dataset.act==="move"){
+    const to=$("#mvDate").value;
+    if(!to||!moveDay(CAL.sel,to)){const m=$("#mvMsg");if(m)m.textContent="Pick a different date that has no finished workout."}
+    return;
+  }
+  if(b.dataset.act==="resetmoves"){if(confirm("Put every workout back on its normal day?")){S.over={};save();renderCal()}return}
   if(b.dataset.nav){CAL.m+=+b.dataset.nav;if(CAL.m<0){CAL.m=11;CAL.y--}if(CAL.m>11){CAL.m=0;CAL.y++}renderCal();return}
   if(b.dataset.date&&!b.dataset.act){CAL.sel=b.dataset.date;renderCal();return}
   if(b.dataset.act==="open")openWorkout(b.dataset.date);
 });
+let DRAG=null,dragT=null,noClick=0;
+const cellOf=el=>el&&el.closest?el.closest(".cell[data-date]"):null;
+function beginDrag(){
+  if(!DRAG||DRAG.on)return;DRAG.on=true;
+  const g=document.createElement("div");g.className="ghost";g.textContent=DRAG.label||"Workout";
+  g.style.left=DRAG.x+"px";g.style.top=DRAG.y+"px";document.body.appendChild(g);DRAG.ghost=g;
+  const src=document.querySelector('.cell[data-date="'+DRAG.from+'"]');if(src)src.classList.add("lift");
+  try{if(navigator.vibrate)navigator.vibrate(15)}catch(x){}
+}
+$("#v-cal").addEventListener("pointerdown",e=>{
+  const c=cellOf(e.target);
+  if(!c||!c.classList.contains("plan")||(e.button!==undefined&&e.button>0))return;
+  DRAG={from:c.dataset.date,x:e.clientX,y:e.clientY,type:e.pointerType,on:false,label:c.dataset.label,to:null,ghost:null};
+  clearTimeout(dragT);dragT=setTimeout(beginDrag,e.pointerType==="mouse"?150:320);
+});
+document.addEventListener("pointermove",e=>{
+  if(!DRAG)return;
+  if(!DRAG.on){
+    if(Math.hypot(e.clientX-DRAG.x,e.clientY-DRAG.y)>10){
+      if(DRAG.type==="mouse")beginDrag();else{clearTimeout(dragT);DRAG=null}
+    }
+    return;
+  }
+  DRAG.ghost.style.left=e.clientX+"px";DRAG.ghost.style.top=e.clientY+"px";
+  document.querySelectorAll(".cell.drop").forEach(x=>x.classList.remove("drop"));
+  const t=cellOf(document.elementFromPoint(e.clientX,e.clientY));
+  DRAG.to=null;
+  if(t&&canMove(DRAG.from,t.dataset.date)){t.classList.add("drop");DRAG.to=t.dataset.date}
+});
+function endDrag(e){
+  clearTimeout(dragT);
+  if(!DRAG)return;
+  const d=DRAG;DRAG=null;
+  if(d.ghost&&d.ghost.parentNode)d.ghost.parentNode.removeChild(d.ghost);
+  document.querySelectorAll(".cell.drop,.cell.lift").forEach(x=>{x.classList.remove("drop");x.classList.remove("lift")});
+  if(!d.on)return;
+  noClick=Date.now();
+  if(e.type==="pointerup"&&d.to)moveDay(d.from,d.to);
+}
+document.addEventListener("pointerup",endDrag);
+document.addEventListener("pointercancel",endDrag);
+document.addEventListener("touchmove",e=>{if(DRAG&&DRAG.on&&e.cancelable)e.preventDefault()},{passive:false});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&DRAG)endDrag({type:"cancel"})});
+$("#v-cal").addEventListener("contextmenu",e=>{if(cellOf(e.target))e.preventDefault()});
 function openWorkout(date){
   const p=planFor(parse(date));
   buildDay(p?p.i:(S.lastDay+1)%S.plan.days.length,date);
@@ -737,8 +814,11 @@ $("#athDetail").addEventListener("click",async e=>{
 })();
 if(S.name&&S.plan&&(S.pin||!CLOUD)){enterApp()}
 else{
-  if(S.name)$("#sName").value=S.name;
-  if(S.name&&S.plan&&CLOUD)$("#nameMsg").textContent="Choose a 4-digit PIN. It keeps your progress backed up and lets you log back in on any phone.";
+  if(S.name&&S.plan&&CLOUD){
+    // saved by an earlier test version with no PIN: start clean so no old name or lifts carry over
+    try{localStorage.removeItem(KEY);localStorage.removeItem(KEY+":draft")}catch(x){}
+    S=Object.assign(S,{name:"",pin:"",plan:null,logs:[],over:{},advice:null,lastDay:-1});
+  }
   enterSetup(1);
 }
 </script>
