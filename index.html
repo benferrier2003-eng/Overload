@@ -74,7 +74,7 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
 .cell.moved{border-style:dashed;border-color:var(--ink)}
 .cell.lift{opacity:.35}
 .cell.drop{outline:3px dashed var(--ink);outline-offset:1px}
-.ghost{position:fixed;z-index:50;pointer-events:none;padding:6px 12px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:700 15px Barlow,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.3);transform:translate(-50%,-130%)}
+.dragghost{position:fixed;z-index:50;pointer-events:none;padding:6px 12px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:700 15px Barlow,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.3);transform:translate(-50%,-130%)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--mute)}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid var(--line)}
 .logline{padding:8px 0;border-top:1px solid var(--line)}
@@ -546,7 +546,7 @@ let DRAG=null,dragT=null,noClick=0;
 const cellOf=el=>el&&el.closest?el.closest(".cell[data-date]"):null;
 function beginDrag(){
   if(!DRAG||DRAG.on)return;DRAG.on=true;
-  const g=document.createElement("div");g.className="ghost";g.textContent=DRAG.label||"Workout";
+  const g=document.createElement("div");g.className="dragghost";g.textContent=DRAG.label||"Workout";
   g.style.left=DRAG.x+"px";g.style.top=DRAG.y+"px";document.body.appendChild(g);DRAG.ghost=g;
   const src=document.querySelector('.cell[data-date="'+DRAG.from+'"]');if(src)src.classList.add("lift");
   try{if(navigator.vibrate)navigator.vibrate(15)}catch(x){}
