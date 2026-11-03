@@ -25,9 +25,10 @@ h3{font-size:22px}
 .who{text-align:right;font-size:14px;color:var(--mute);line-height:1.3}
 .who b{color:var(--ink);font-size:16px}
 .linkbtn{background:none;border:0;padding:0;color:var(--mute);text-decoration:underline;font:500 14px Barlow,sans-serif;cursor:pointer}
-nav{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:16px}
-nav button{border:0;border-radius:7px;background:none;padding:10px 2px;font:700 19px "Barlow Condensed","Arial Narrow",sans-serif;color:var(--mute);cursor:pointer}
+nav{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:16px}
+nav button{border:0;border-radius:7px;background:none;padding:10px 0;font:700 15px "Barlow Condensed","Arial Narrow",sans-serif;color:var(--mute);cursor:pointer}
 nav button[aria-selected="true"]{background:var(--ink);color:var(--bg)}
+@media (min-width:520px){nav button{font-size:19px}}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
 .hero{padding:24px 20px}
 .hero .lead{color:var(--mute);margin:8px 0 18px;max-width:44ch}
@@ -75,6 +76,14 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
 .cell.lift{opacity:.35}
 .cell.drop{outline:3px dashed var(--ink);outline-offset:1px}
 .dragghost{position:fixed;z-index:50;pointer-events:none;padding:6px 12px;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:700 15px Barlow,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.3);transform:translate(-50%,-130%)}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.slot{padding:12px 4px;border:2px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:700 19px "Barlow Condensed","Arial Narrow",sans-serif;cursor:pointer}
+.slot[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.slot:disabled{opacity:.35;cursor:not-allowed;text-decoration:line-through}
+.st{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;background:var(--line);color:var(--ink);vertical-align:2px}
+.st.ok{background:var(--good);color:var(--on-good)}
+.st.no{background:var(--bad);color:var(--bg)}
+a.vl{color:var(--ink);font-weight:600}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--mute)}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid var(--line)}
 .logline{padding:8px 0;border-top:1px solid var(--line)}
@@ -168,6 +177,8 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
       <button role="tab" id="t-cal" data-tab="cal" aria-selected="true">Calendar</button>
       <button role="tab" id="t-wk" data-tab="wk" aria-selected="false">Workout</button>
       <button role="tab" id="t-prog" data-tab="prog" aria-selected="false">Progress</button>
+      <button role="tab" id="t-body" data-tab="body" aria-selected="false">Body</button>
+      <button role="tab" id="t-talk" data-tab="talk" aria-selected="false">Coach</button>
       <button role="tab" id="t-plan" data-tab="plan" aria-selected="false">Plan</button>
     </nav>
 
@@ -184,6 +195,8 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
       </div>
     </section>
 
+    <section id="v-body" hidden></section>
+    <section id="v-talk" hidden></section>
     <section id="v-plan" hidden></section>
   </div>
 
@@ -200,6 +213,7 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
         <button class="btn ghost" id="coachRefresh" type="button">Refresh</button>
         <button class="btn ghost" id="coachLock" type="button">Lock</button>
       </div>
+      <div id="bkCoach"></div>
       <div id="athList"></div>
       <div id="athDetail"></div>
     </div>
@@ -217,7 +231,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---------- state ---------- */
-let S={over:{},pin:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
+let S={bw:{},vids:[],over:{},pin:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
 try{const r=localStorage.getItem(KEY);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
 let syncT=null;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}syncSoon()}
@@ -371,7 +385,7 @@ async function syncNow(){
   if(!CLOUD||!S.pin||!S.name||!S.plan)return;
   setSync("Saving…");
   try{
-    const r=await rpc("save_client",{p_name:S.name,p_pin:S.pin,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,over:S.over||{},logs:S.logs.slice(-500)}});
+    const r=await rpc("save_client",{p_name:S.name,p_pin:S.pin,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,over:S.over||{},bw:S.bw||{},vids:S.vids||[],logs:S.logs.slice(-500)}});
     if(r.status==="wrong"){setSync("This name is already in use with a different PIN.");return}
     if(r.status==="locked"){setSync("Too many wrong PINs. Try again in 10 minutes.");return}
     S.advice=r.advice?{text:r.advice,at:r.advice_at}:null;
@@ -390,10 +404,12 @@ let TAB="cal",WK=null,CAL={y:new Date().getFullYear(),m:new Date().getMonth(),se
 function topScroll(){try{window.scrollTo(0,0)}catch(e){}}
 function show(tab){
   TAB=tab;
-  ["cal","wk","prog","plan"].forEach(id=>{$("#v-"+id).hidden=id!==tab;$("#t-"+id).setAttribute("aria-selected",String(id===tab))});
+  ["cal","wk","prog","body","talk","plan"].forEach(id=>{$("#v-"+id).hidden=id!==tab;$("#t-"+id).setAttribute("aria-selected",String(id===tab))});
   if(tab==="cal")renderCal();
   if(tab==="wk")renderWorkout();
   if(tab==="prog")renderProg();
+  if(tab==="body")renderBody();
+  if(tab==="talk")renderTalk();
   if(tab==="plan")renderPlan();
   topScroll();
 }
@@ -430,7 +446,7 @@ $("#nameForm").addEventListener("submit",async e=>{
       if(r.status==="locked"){msg.textContent="Too many wrong tries. Try again in 10 minutes.";return}
       if(r.status==="ok"){
         const d=r.data||{};
-        S=Object.assign(S,{name:r.name||v,pin:pin,gender:d.gender||"Female",age:d.age||25,n:d.n||3,unit:d.unit||"lb",plan:d.plan||null,over:d.over||{},logs:d.logs||[],lastDay:-1,advice:r.advice?{text:r.advice,at:r.advice_at}:null});
+        S=Object.assign(S,{name:r.name||v,pin:pin,gender:d.gender||"Female",age:d.age||25,n:d.n||3,unit:d.unit||"lb",plan:d.plan||null,over:d.over||{},bw:d.bw||{},vids:d.vids||[],logs:d.logs||[],lastDay:-1,advice:r.advice?{text:r.advice,at:r.advice_at}:null});
         try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
         WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}
         msg.textContent="";
@@ -441,7 +457,7 @@ $("#nameForm").addEventListener("submit",async e=>{
   }
   msg.textContent="";draft.name=v;draft.pin=pin;
   const nk=x=>String(x||"").trim().replace(/\s+/g," ").toLowerCase();
-  if(S.name&&nk(S.name)!==nk(v)){S.logs=[];S.plan=null;S.over={};S.advice=null;S.lastDay=-1;WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}}
+  if(S.name&&nk(S.name)!==nk(v)){S.logs=[];S.plan=null;S.over={};S.bw={};S.vids=[];S.advice=null;S.lastDay=-1;WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}}
   $("#hiName").textContent="Hi, "+v.split(" ")[0]+". Tell us about you.";
   $("#newNote").textContent="Creating a new account for "+v+". If you’ve trained here before, go back and check how your name is spelled.";
   $("#gender").value=S.gender;$("#age").value=S.age;$("#days").value=S.n;
@@ -645,13 +661,14 @@ function finishWorkout(){
   const lab=S.plan.days[WK.day].label,date=WK.date;WK=null;CAL.y=parse(date).getFullYear();CAL.m=parse(date).getMonth();CAL.sel=date;
   $("#v-wk").innerHTML='<div class="card"><h2>Workout saved</h2><p style="margin:0 0 8px">'+done.length+" sets logged for "+esc(lab)+".</p>"+
     gains.map(g=>{const d=g.prev===null?null:g.v-g.prev;return '<div class="row"><b>'+esc(g.n)+'</b><span class="'+(d===null?"mute":d>=0?"up":"down")+'">Est. max '+fmt(g.v)+" "+S.unit+(d===null?" (first session)":" ("+(d>=0?"+":"")+fmt(d)+")")+"</span></div>"}).join("")+
-    '<button class="btn" id="seeCal" type="button" style="margin-right:10px">See my calendar</button><button class="btn ghost" id="seeProg" type="button">See my progress</button></div>';
+    '<button class="btn" id="seeCal" type="button" style="margin-right:10px">See my calendar</button><button class="btn ghost" id="seeProg" type="button">See my progress</button> <button class="btn ghost" id="seeBody" type="button">Log body weight</button></div>';
   topScroll();
 }
 $("#v-wk").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
   if(b.id==="seeCal"){show("cal");return}
   if(b.id==="seeProg"){show("prog");return}
+  if(b.id==="seeBody"){BWSEL=CAL.sel;show("body");return}
   if(b.id==="finBtn"){if(WK)finishWorkout();return}
   if(b.dataset.day!==undefined){buildDay(+b.dataset.day,WK?WK.date:today());renderWorkout();return}
   const a=b.dataset.act;if(!a||!WK)return;
@@ -724,6 +741,160 @@ $("#aiBtn").addEventListener("click",()=>{
   runAI(COACH_P+summarize(S.logs,S.unit,S),$("#aiOut"),$("#aiBtn"));
 });
 
+/* ---------- body weight ---------- */
+let BWSEL=null;
+const bwListOf=o=>Object.keys(o||{}).sort().map(d=>({d:d,v:+o[d]})).filter(x=>isFinite(x.v));
+const bwOk=(v,u)=>isFinite(v)&&(u==="kg"?v>=25&&v<=360:v>=50&&v<=800);
+function workoutDays(){
+  const by=logsByDate(),out=[],t=new Date(),td=today();
+  for(let i=0;i<28;i++){const d=addDays(t,-i),k=iso(d);if(k===td||by[k]||planFor(d))out.push(k)}
+  return out;
+}
+function bwChart(list,u){
+  if(list.length<2)return '<p class="empty">Log your weight on two different workout days and your trend shows up here.</p>';
+  const W=640,H=220,P={l:52,r:16,t:16,b:30},vs=list.map(x=>x.v),mn=Math.min.apply(null,vs),mx=Math.max.apply(null,vs),pd=(mx-mn)*.2||1,lo=mn-pd,hi=mx+pd;
+  const X=i=>P.l+i*(W-P.l-P.r)/(list.length-1),Y=v=>H-P.b-(v-lo)/(hi-lo)*(H-P.t-P.b);
+  let g="";
+  for(let i=0;i<4;i++){const v=lo+(hi-lo)*i/3,y=Y(v);g+='<line x1="'+P.l+'" x2="'+(W-P.r)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)"/><text x="'+(P.l-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="12" fill="var(--mute)">'+fmt(v)+'</text>'}
+  g+='<polyline points="'+list.map((x,i)=>X(i)+","+Y(x.v)).join(" ")+'" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>';
+  g+=list.map((x,i)=>'<circle cx="'+X(i)+'" cy="'+Y(x.v)+'" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"><title>'+esc(x.d)+": "+fmt(x.v)+" "+u+"</title></circle>").join("");
+  const md=d=>fdate(parse(d),{month:"short",day:"numeric"});
+  g+='<text x="'+P.l+'" y="'+(H-8)+'" font-size="12" fill="var(--mute)">'+esc(md(list[0].d))+'</text><text x="'+(W-P.r)+'" y="'+(H-8)+'" text-anchor="end" font-size="12" fill="var(--mute)">'+esc(md(list[list.length-1].d))+"</text>";
+  return '<div class="scroll"><svg class="chart" viewBox="0 0 '+W+" "+H+'" role="img" aria-label="Body weight over time">'+g+"</svg></div>";
+}
+function bwSummary(list,u){
+  if(!list.length)return '<p class="empty">No weigh-ins yet.</p>';
+  const a=list[0],b=list[list.length-1],d=b.v-a.v;
+  return '<div class="row"><span>Latest</span><b>'+fmt(b.v)+" "+u+'</b></div>'+(list.length>1?'<div class="row"><span>Change since '+esc(fdate(parse(a.d),{month:"short",day:"numeric"}))+'</span><b>'+(d>0?"+":"")+fmt(d)+" "+u+"</b></div>":"");
+}
+function renderBody(){
+  const days=workoutDays(),list=bwListOf(S.bw),u=S.unit;
+  const sel=BWSEL&&days.indexOf(BWSEL)>=0?BWSEL:days[0];BWSEL=sel;
+  const opts=days.map(k=>{const p=planFor(parse(k));return '<option value="'+k+'"'+(k===sel?" selected":"")+">"+esc(fdate(parse(k))+(k===today()?" (today)":"")+(p?" · "+p.day.label:""))+"</option>"}).join("");
+  const cur=S.bw&&S.bw[sel]!==undefined?S.bw[sel]:"";
+  $("#v-body").innerHTML=
+    '<div class="card"><h2>Weigh-in</h2><p class="mute" style="margin:0 0 12px">Log your body weight on your workout days. Same time of day each time gives the cleanest trend.</p>'+
+    '<div class="grid"><label>Workout day<select id="bwDate">'+opts+'</select></label><label>Body weight ('+esc(u)+')<input id="bwVal" type="number" inputmode="decimal" step="0.1" value="'+esc(cur)+'" placeholder="0.0"></label></div>'+
+    '<button class="btn" id="bwSave" type="button">Save weight</button><p class="msg" id="bwMsg" aria-live="polite"></p></div>'+
+    '<div class="card"><h2>Body weight trend</h2>'+bwSummary(list,u)+bwChart(list,u)+"</div>"+
+    (list.length?'<div class="card"><h3>History</h3>'+list.slice().reverse().slice(0,14).map(x=>'<div class="row"><span>'+esc(fdate(parse(x.d)))+'</span><span><b>'+fmt(x.v)+" "+esc(u)+'</b> &nbsp; <button class="linkbtn" data-del="'+esc(x.d)+'" type="button">Delete</button></span></div>').join("")+"</div>":"");
+}
+$("#v-body").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.id==="bwSave"){
+    const v=parseFloat($("#bwVal").value),d=$("#bwDate").value;
+    if(!bwOk(v,S.unit)){$("#bwMsg").textContent="Enter your body weight in "+S.unit+".";return}
+    S.bw=S.bw||{};S.bw[d]=Math.round(v*10)/10;BWSEL=d;save();renderBody();$("#bwMsg").textContent="Saved.";$("#bwMsg").style.color="var(--good)";
+  }
+  if(b.dataset&&b.dataset.del){delete S.bw[b.dataset.del];save();renderBody()}
+});
+$("#v-body").addEventListener("change",e=>{
+  if(e.target.id==="bwDate"){BWSEL=e.target.value;const c=S.bw&&S.bw[BWSEL];$("#bwVal").value=c===undefined?"":c}
+});
+
+/* ---------- coach tab: book a call or chat, share form videos ---------- */
+const SLOTS=["18:00","18:30","19:00","19:30","20:00","20:30"];
+let BK={mine:[],taken:[],state:"loading",day:null,slot:null,kind:"call",note:"",msg:""};
+const etNow=()=>new Date().toLocaleString("sv-SE",{timeZone:"America/New_York"}).slice(0,16);
+const tlab=t=>{const h=+t.slice(0,2);return ((h+11)%12+1)+":"+t.slice(3,5)+(h>=12?" PM":" AM")};
+const fslot=s=>fdate(parse(s.slice(0,10)))+" · "+tlab(s.slice(11,16))+" ET";
+function bookDays(){
+  const out=[],base=parse(etNow().slice(0,10));
+  for(let i=0;i<21&&out.length<10;i++){const x=addDays(base,i),w=x.getDay();if(w>=1&&w<=5)out.push(iso(x))}
+  return out;
+}
+const STXT={requested:"Waiting for coach",confirmed:"Confirmed",declined:"Declined"};
+function bookHTML(){
+  const head='<div class="card"><h2>Book a call or chat</h2><p class="mute" style="margin:0">Monday to Friday, 6 to 9 PM Eastern, in 30-minute slots.</p>';
+  if(BK.state==="off")return head+'<p class="empty" style="margin-top:10px">Booking needs the online database, which isn’t connected on this copy of the site.</p></div>';
+  if(BK.state==="setup")return head+'<p class="empty" style="margin-top:10px">Booking isn’t switched on yet. Your coach needs to finish one setup step.</p></div>';
+  if(BK.state==="net")return head+'<p class="empty" style="margin-top:10px">Couldn’t load times. Check your connection.</p><button class="btn ghost" id="bkRetry" type="button" style="margin-top:10px">Try again</button></div>';
+  if(BK.state==="loading")return head+'<p class="empty" style="margin-top:10px">Loading times…</p></div>';
+  const days=bookDays(),now=etNow();
+  if(!BK.day||days.indexOf(BK.day)<0)BK.day=days[0];
+  const kinds=[["call","Phone / video call"],["chat","Chat"]].map(k=>'<button class="pill" type="button" data-kind="'+k[0]+'" aria-pressed="'+(BK.kind===k[0])+'">'+k[1]+"</button>").join("");
+  const dp=days.map(d=>'<button class="pill" type="button" data-bd="'+d+'" aria-pressed="'+(BK.day===d)+'">'+esc(fdate(parse(d),{weekday:"short",month:"short",day:"numeric"}))+"</button>").join("");
+  const sl=SLOTS.map(t=>{const k=BK.day+" "+t,off=k<=now||BK.taken.indexOf(k)>=0;return '<button class="slot" type="button" data-slot="'+k+'"'+(off?" disabled":"")+' aria-pressed="'+(BK.slot===k)+'">'+tlab(t)+"</button>"}).join("");
+  const mine=BK.mine.filter(m=>m.slot>=now.slice(0,10)).map(m=>'<div class="row" style="align-items:flex-start"><span><b>'+esc(fslot(m.slot))+'</b> <span class="mute">'+(m.kind==="chat"?"chat":"call")+'</span><br><span class="st '+(m.state==="confirmed"?"ok":m.state==="declined"?"no":"")+'">'+esc(STXT[m.state]||m.state)+"</span>"+(m.note?'<br><span class="mute">'+esc(m.note)+"</span>":"")+(m.reply?'<br>Coach: '+esc(m.reply):"")+"</span>"+(m.state!=="declined"?'<button class="linkbtn" data-cancel="'+esc(m.id)+'" type="button">Cancel</button>':"")+"</div>").join("");
+  return head+'<div class="pills" style="margin-top:12px">'+kinds+'</div><div class="pills">'+dp+'</div><div class="slots">'+sl+'</div>'+
+    '<label style="margin-top:12px">What do you want to cover? (optional)<textarea id="bkNote" maxlength="300" style="min-height:70px" placeholder="Form check, plan change, a question…">'+esc(BK.note)+'</textarea></label>'+
+    '<button class="btn block" id="bkGo" type="button"'+(BK.slot?"":" disabled")+'>'+(BK.slot?"Request "+esc(fslot(BK.slot)):"Pick a time")+'</button><p class="msg" id="bkMsg" aria-live="polite">'+esc(BK.msg)+"</p></div>"+
+    '<div class="card"><h3>Your sessions</h3>'+(mine||'<p class="empty">Nothing booked yet.</p>')+"</div>";
+}
+function drawBook(){const b=$("#bkBox");if(b)b.innerHTML=bookHTML()}
+async function loadBookings(){
+  if(!CLOUD||!S.pin){BK.state="off";drawBook();return}
+  try{
+    const r=await rpc("client_bookings",{p_name:S.name,p_pin:S.pin});
+    if(r.status!=="ok")BK.state="net";
+    else{BK.mine=Array.isArray(r.mine)?r.mine:[];BK.taken=Array.isArray(r.taken)?r.taken:[];BK.state="ok"}
+  }catch(x){BK.state=/schema cache|find the function/i.test(x.message)?"setup":"net"}
+  drawBook();
+}
+async function bookGo(){
+  if(!BK.slot)return;
+  const slot=BK.slot;BK.msg="Sending…";drawBook();
+  try{
+    const r=await rpc("client_book",{p_name:S.name,p_pin:S.pin,p_slot:slot,p_kind:BK.kind,p_note:BK.note.trim().slice(0,300)});
+    const M={ok:"Requested. Your coach will confirm it here.",taken:"Someone just took that time. Pick another.",limit:"You already have 2 upcoming requests. Cancel one to book another.",invalid:"That time isn’t available.",wrong:"Your PIN didn’t match. Log out and back in.",locked:"Too many wrong PINs. Try again in 10 minutes."};
+    BK.msg=M[r.status]||"Couldn’t book that.";
+    if(r.status==="ok"){BK.slot=null;BK.note=""}
+    await loadBookings();
+  }catch(x){BK.msg="Couldn’t reach the server. Try again.";drawBook()}
+}
+const isUrl=u=>/^https?:\/\/[^\s<>"]+$/i.test(u)&&u.length<=300;
+function vidRows(vs,mine){
+  if(!vs.length)return '<p class="empty">No videos yet.</p>';
+  return vs.slice().reverse().map(v=>'<div class="row" style="align-items:flex-start"><span><b>'+esc(v.lift)+'</b> <span class="mute">'+esc(v.d)+"</span>"+(v.note?'<br><span class="mute">'+esc(v.note)+"</span>":"")+'<br><a class="vl" href="'+esc(v.url)+'" target="_blank" rel="noopener noreferrer">Watch video</a></span>'+(mine?'<button class="linkbtn" data-vdel="'+esc(v.id)+'" type="button">Remove</button>':"")+"</div>").join("");
+}
+function liftNames(){
+  const seen={},out=[];
+  const add=n=>{const k=n.toLowerCase();if(!seen[k]){seen[k]=1;out.push(n)}};
+  if(S.plan)S.plan.days.forEach(d=>(D[d.key]||[]).forEach(x=>add(x.split("|")[0])));
+  lifts(S.logs).forEach(add);
+  return out;
+}
+function drawVids(){
+  const b=$("#vidBox");if(!b)return;
+  b.innerHTML='<div class="card"><h2>Form videos <span class="mute" style="font-weight:500">(optional)</span></h2>'+
+    '<p class="mute" style="margin:0 0 12px">Film a set, upload it to YouTube (set to Unlisted), Google Drive or iCloud (anyone with the link can view), then paste the link. Your coach can watch it and give you form feedback.</p>'+
+    '<label>Lift<input id="vLift" list="vLifts" maxlength="60" placeholder="e.g. Back squat" autocomplete="off"></label><datalist id="vLifts">'+liftNames().map(n=>'<option value="'+esc(n)+'">').join("")+'</datalist>'+
+    '<label style="margin-top:10px">Video link<input id="vUrl" type="url" inputmode="url" maxlength="300" placeholder="https://" autocomplete="off"></label>'+
+    '<label style="margin-top:10px">Note (optional)<input id="vNote" maxlength="140" placeholder="e.g. 185 lb, last rep felt off" autocomplete="off"></label>'+
+    '<button class="btn" id="vAdd" type="button">Add video</button><p class="msg" id="vMsg" aria-live="polite"></p></div>'+
+    '<div class="card"><h3>Your videos</h3>'+vidRows(S.vids||[],true)+"</div>";
+}
+function renderTalk(){
+  BK.state="loading";BK.mine=[];BK.taken=[];BK.msg="";
+  $("#v-talk").innerHTML='<div id="bkBox"></div><div id="vidBox"></div>';
+  drawBook();drawVids();loadBookings();
+}
+$("#v-talk").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;
+  const ds=b.dataset||{};
+  if(ds.kind){BK.kind=ds.kind;BK.msg="";drawBook();return}
+  if(ds.bd){BK.day=ds.bd;BK.slot=null;BK.msg="";drawBook();return}
+  if(ds.slot){BK.slot=BK.slot===ds.slot?null:ds.slot;BK.msg="";drawBook();return}
+  if(b.id==="bkGo"){bookGo();return}
+  if(b.id==="bkRetry"){BK.state="loading";drawBook();loadBookings();return}
+  if(ds.cancel){
+    rpc("client_cancel_booking",{p_name:S.name,p_pin:S.pin,p_id:ds.cancel}).then(()=>{BK.msg="";loadBookings()}).catch(()=>{BK.msg="Couldn’t cancel. Try again.";drawBook()});
+    return;
+  }
+  if(b.id==="vAdd"){
+    const lift=$("#vLift").value.trim(),url=$("#vUrl").value.trim(),note=$("#vNote").value.trim().slice(0,140),m=$("#vMsg");
+    if(!lift){m.textContent="Which lift is it?";return}
+    if(!isUrl(url)){m.textContent="Paste the full link, starting with https://";return}
+    S.vids=S.vids||[];
+    if(S.vids.length>=40){m.textContent="You can keep up to 40 videos. Remove an old one first.";return}
+    S.vids.push({id:Date.now()+Math.random().toString(36).slice(2,6),lift:lift.slice(0,60),url:url,note:note,d:today()});
+    save();drawVids();$("#vMsg").textContent="Added. Your coach can see it.";$("#vMsg").style.color="var(--good)";
+    return;
+  }
+  if(ds.vdel){S.vids=(S.vids||[]).filter(v=>v.id!==ds.vdel);save();drawVids()}
+});
+$("#v-talk").addEventListener("input",e=>{if(e.target.id==="bkNote")BK.note=e.target.value});
+
 /* ---------- coach ---------- */
 let CPASS=null,ATH=[],CUR=null;
 function openCoach(){
@@ -739,13 +910,35 @@ $("#lockForm").addEventListener("submit",async e=>{
   if(!CLOUD){$("#lockMsg").textContent="The coach view needs the cloud database. Add your Supabase URL and key at the top of the page script.";return}
   const pw=$("#lockPw").value,msg=$("#lockMsg"),btn=$("#lockBtn");
   btn.disabled=true;msg.textContent="Checking…";
-  try{ATH=await rpc("coach_list",{p_pass:pw});CPASS=pw;$("#lockPw").value="";msg.textContent="";$("#lockCard").hidden=true;$("#coachBody").hidden=false;renderCoach()}
+  try{ATH=await rpc("coach_list",{p_pass:pw});CPASS=pw;$("#lockPw").value="";msg.textContent="";$("#lockCard").hidden=true;$("#coachBody").hidden=false;renderCoach();loadCoachBookings()}
   catch(x){msg.textContent=/wrong password/i.test(x.message)?"Wrong password.":"Couldn’t reach the database. Try again."}
   btn.disabled=false;
 });
 $("#coachLock").addEventListener("click",()=>{CPASS=null;ATH=[];CUR=null;$("#athDetail").innerHTML="";$("#athList").innerHTML="";$("#lockCard").hidden=false;$("#coachBody").hidden=true});
 $("#coachRefresh").addEventListener("click",async()=>{
-  try{ATH=await rpc("coach_list",{p_pass:CPASS});renderCoach();if(CUR)showAth(CUR)}catch(e){$("#coachCount").textContent="Couldn’t refresh"}
+  try{ATH=await rpc("coach_list",{p_pass:CPASS});renderCoach();loadCoachBookings();if(CUR)showAth(CUR)}catch(e){$("#coachCount").textContent="Couldn’t refresh"}
+});
+let BKC=null,BKCERR="";
+async function loadCoachBookings(){
+  try{const r=await rpc("coach_bookings",{p_pass:CPASS});BKC=Array.isArray(r)?r:[];BKCERR=""}
+  catch(x){BKC=null;BKCERR=/schema cache|find the function/i.test(x.message)?"setup":"net"}
+  drawCoachBk();
+}
+function drawCoachBk(){
+  const el=$("#bkCoach");if(!el)return;
+  if(BKCERR==="setup"){el.innerHTML='<div class="card"><h3>Call and chat requests</h3><p class="empty">Booking isn’t switched on yet. Run supabase-booking.sql once in your Supabase SQL Editor.</p></div>';return}
+  if(BKCERR){el.innerHTML='<div class="card"><h3>Call and chat requests</h3><p class="empty">Couldn’t load requests. Tap Refresh.</p></div>';return}
+  const list=BKC||[],pend=list.filter(b=>b.state==="requested").length;
+  el.innerHTML='<div class="card"><div class="wkhead"><h3 style="margin:0">Call and chat requests</h3><span class="mute">'+(pend?pend+" waiting":"all caught up")+"</span></div>"+
+    (list.length?list.map(b=>'<div class="row" style="display:block"><div><b>'+esc(b.name)+'</b> <span class="mute">'+(b.kind==="chat"?"chat":"call")+'</span> <span class="st '+(b.state==="confirmed"?"ok":"")+'">'+(b.state==="confirmed"?"Confirmed":"New")+'</span></div><div>'+esc(fslot(b.slot))+"</div>"+(b.note?'<div class="mute">'+esc(b.note)+"</div>":"")+
+      '<input data-rid="'+esc(b.id)+'" maxlength="500" placeholder="Reply: phone number, Zoom link, etc." value="'+esc(b.reply||"")+'" style="margin-top:8px">'+
+      '<div style="margin-top:8px"><button class="btn ghost" data-bk="'+esc(b.id)+'" data-st="confirmed" type="button">Confirm</button> <button class="btn ghost" data-bk="'+esc(b.id)+'" data-st="declined" type="button">Decline</button></div></div>').join(""):'<p class="empty">No upcoming requests.</p>')+"</div>";
+}
+$("#bkCoach").addEventListener("click",async e=>{
+  const b=e.target.closest("button");if(!b||!b.dataset||!b.dataset.bk)return;
+  const inp=$("#bkCoach").querySelector('input[data-rid="'+b.dataset.bk+'"]');
+  try{await rpc("coach_booking_set",{p_pass:CPASS,p_id:b.dataset.bk,p_status:b.dataset.st,p_reply:inp?inp.value:""});loadCoachBookings()}
+  catch(x){$("#coachCount").textContent="Couldn’t update that request"}
 });
 function athStats(a){
   const d=a.data||{},logs=d.logs||[],dates=[...new Set(logs.map(l=>l.d))].sort();
@@ -777,6 +970,8 @@ function showAth(id){
     '<div class="card"><h3>Consistency, last 4 weeks</h3>'+wk+"</div>"+
     '<div class="card"><h2>Strength gained</h2>'+overview(s.logs,u)+"</div>"+
     '<div class="card"><h3>Next-week targets</h3>'+targetsHTML(s.logs,u)+"</div>"+
+    '<div class="card"><h3>Body weight</h3>'+bwSummary(bwListOf(s.d.bw),u)+bwChart(bwListOf(s.d.bw),u)+"</div>"+
+    '<div class="card"><h3>Form videos</h3>'+vidRows(s.d.vids||[],false)+"</div>"+
     '<div class="card"><h3>Recent sets</h3>'+(recent||'<p class="empty">No lifts logged.</p>')+"</div>"+
     '<div class="card"><h3>Advice for '+esc(a.name.split(" ")[0])+'</h3><textarea id="advTxt" aria-label="Advice" placeholder="Write advice they will see on their Progress tab">'+esc(a.advice||"")+'</textarea><button class="btn" id="advSave" type="button">Send advice</button> <button class="btn ghost" id="advAI" type="button"'+(SAMPLE?"":" hidden")+'>Draft with AI</button><p class="mute" id="advStat" aria-live="polite"></p>'+
     '<p style="margin:16px 0 0"><button class="linkbtn" id="rstPin" type="button">Reset this client’s PIN</button> &nbsp; <button class="linkbtn" id="rmAth" type="button">Remove this client and their data</button></p></div>';
@@ -817,7 +1012,7 @@ else{
   if(S.name&&S.plan&&CLOUD){
     // saved by an earlier test version with no PIN: start clean so no old name or lifts carry over
     try{localStorage.removeItem(KEY);localStorage.removeItem(KEY+":draft")}catch(x){}
-    S=Object.assign(S,{name:"",pin:"",plan:null,logs:[],over:{},advice:null,lastDay:-1});
+    S=Object.assign(S,{name:"",pin:"",plan:null,logs:[],over:{},bw:{},vids:[],advice:null,lastDay:-1});
   }
   enterSetup(1);
 }
