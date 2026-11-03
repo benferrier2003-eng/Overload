@@ -120,16 +120,18 @@ ul.ex li span:last-child{color:var(--mute);white-space:nowrap}
   <section id="setup" hidden>
     <div class="card hero" id="s1">
       <h1>Welcome. What’s your full name?</h1>
-      <p class="lead">Your coach uses your name to follow your progress. This phone remembers you, so you only enter it once.</p>
+      <p class="lead">Enter your name and a 4-digit PIN. New here? We’ll set you up. Already training with us? This logs you back in to your progress on any phone.</p>
       <form id="nameForm">
         <label>Full name<input class="big" id="sName" type="text" autocomplete="name" placeholder="First Last" maxlength="60" required></label>
+        <label style="margin-top:14px">4-digit PIN<input class="big" id="sPin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="••••" required></label>
         <p class="msg" id="nameMsg" aria-live="polite"></p>
-        <button class="btn block" type="submit">Continue</button>
+        <button class="btn block" id="nameBtn" type="submit">Continue</button>
       </form>
     </div>
     <div class="card hero" id="s2" hidden>
       <h1 id="hiName">Tell us about you</h1>
-      <p class="lead">We’ll build a plan for how many days you can train.</p>
+      <p class="lead" style="margin-bottom:6px">We’ll build a plan for how many days you can train.</p>
+      <p class="mute" id="newNote" style="margin:0 0 14px"></p>
       <form id="bodyForm">
         <div class="grid">
           <label>Gender
@@ -210,7 +212,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 /* ---------- state ---------- */
-let S={id:"",secret:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
+let S={pin:"",name:"",gender:"Female",age:25,n:3,unit:"lb",plan:null,logs:[],lastDay:-1,advice:null};
 try{const r=localStorage.getItem(KEY);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
 let syncT=null;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}syncSoon()}
@@ -361,11 +363,13 @@ async function rpc(fn,body){
 const setSync=t=>{const e=$("#sync");if(e)e.textContent=t};
 function syncSoon(){if(!CLOUD)return;clearTimeout(syncT);syncT=setTimeout(syncNow,1500)}
 async function syncNow(){
-  if(!CLOUD||!S.id||!S.name||!S.plan)return;
+  if(!CLOUD||!S.pin||!S.name||!S.plan)return;
   setSync("Saving…");
   try{
-    const r=await rpc("save_athlete",{p_id:S.id,p_secret:S.secret,p_name:S.name,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,logs:S.logs.slice(-500)}});
-    S.advice=r&&r.advice?{text:r.advice,at:r.advice_at}:null;
+    const r=await rpc("save_client",{p_name:S.name,p_pin:S.pin,p_data:{gender:S.gender,age:S.age,n:S.n,unit:S.unit,plan:S.plan,logs:S.logs.slice(-500)}});
+    if(r.status==="wrong"){setSync("This name is already in use with a different PIN.");return}
+    if(r.status==="locked"){setSync("Too many wrong PINs. Try again in 10 minutes.");return}
+    S.advice=r.advice?{text:r.advice,at:r.advice_at}:null;
     try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     setSync("Shared with your coach");renderNote();
   }catch(e){setSync("Saved on this phone. Will retry.")}
@@ -407,12 +411,32 @@ document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()
 
 /* ---------- setup flow ---------- */
 let draft={};
-$("#nameForm").addEventListener("submit",e=>{
+$("#nameForm").addEventListener("submit",async e=>{
   e.preventDefault();
-  const v=$("#sName").value.trim().replace(/\s+/g," ");
-  if(!/\S+\s+\S+/.test(v)){$("#nameMsg").textContent="Please enter your first and last name.";return}
-  $("#nameMsg").textContent="";draft.name=v;
+  const v=$("#sName").value.trim().replace(/\s+/g," "),pin=$("#sPin").value.trim(),msg=$("#nameMsg"),btn=$("#nameBtn");
+  if(!/\S+\s+\S+/.test(v)){msg.textContent="Please enter your first and last name.";return}
+  if(!/^\d{4}$/.test(pin)){msg.textContent="Your PIN must be exactly 4 digits.";return}
+  msg.textContent="";
+  if(CLOUD){
+    btn.disabled=true;msg.textContent="Checking…";
+    try{
+      const r=await rpc("client_login",{p_name:v,p_pin:pin});
+      if(r.status==="wrong"){msg.textContent="That name is already in use with a different PIN. Check your PIN, or ask your coach to reset it.";return}
+      if(r.status==="locked"){msg.textContent="Too many wrong tries. Try again in 10 minutes.";return}
+      if(r.status==="ok"){
+        const d=r.data||{};
+        S=Object.assign(S,{name:r.name||v,pin:pin,gender:d.gender||"Female",age:d.age||25,n:d.n||3,unit:d.unit||"lb",plan:d.plan||null,logs:d.logs||[],lastDay:-1,advice:r.advice?{text:r.advice,at:r.advice_at}:null});
+        try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
+        WK=null;try{localStorage.removeItem(KEY+":draft")}catch(x){}
+        msg.textContent="";
+        if(S.plan){CAL.sel=today();enterApp();return}
+      }
+    }catch(x){msg.textContent="Couldn’t reach the server. Check your connection and try again.";return}
+    finally{btn.disabled=false}
+  }
+  msg.textContent="";draft.name=v;draft.pin=pin;
   $("#hiName").textContent="Hi, "+v.split(" ")[0]+". Tell us about you.";
+  $("#newNote").textContent="Creating a new account for "+v+". If you’ve trained here before, go back and check how your name is spelled.";
   $("#gender").value=S.gender;$("#age").value=S.age;$("#days").value=S.n;
   setPane(2);
 });
@@ -425,9 +449,8 @@ $("#bodyForm").addEventListener("submit",e=>{
 });
 $("#s3back").addEventListener("click",()=>setPane(2));
 $("#startBtn").addEventListener("click",()=>{
-  S.name=draft.name||S.name;S.gender=draft.gender;S.age=draft.age;S.n=draft.n;
+  S.name=draft.name||S.name;S.pin=draft.pin||S.pin;S.gender=draft.gender;S.age=draft.age;S.n=draft.n;
   S.plan=makePlan(S.n);S.lastDay=-1;
-  if(!S.id){S.id=rid();S.secret=rsecret()}
   WK=null;CAL.sel=today();save();enterApp();
 });
 
@@ -578,7 +601,7 @@ function renderProg(){
   $("#chartBox").innerHTML=nm.length?liftChart(S.logs,S.unit,sel.value):'<p class="empty">No lifts yet. Finish a workout and your graph shows up here.</p>';
   $("#nextList").innerHTML=targetsHTML(S.logs,S.unit);
   $("#aiBox").hidden=!SAMPLE;renderNote();
-  if(CLOUD&&S.id){rpc("get_advice",{p_id:S.id,p_secret:S.secret}).then(r=>{if(r){S.advice=r.advice?{text:r.advice,at:r.advice_at}:null;renderNote()}}).catch(()=>{})}
+  if(CLOUD&&S.pin){rpc("get_advice",{p_name:S.name,p_pin:S.pin}).then(r=>{if(r&&r.status==="ok"){S.advice=r.advice?{text:r.advice,at:r.advice_at}:null;renderNote()}}).catch(()=>{})}
 }
 $("#pick").addEventListener("change",e=>{$("#chartBox").innerHTML=liftChart(S.logs,S.unit,e.target.value)});
 
@@ -594,7 +617,7 @@ function renderPlan(){
 }
 $("#v-plan").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
-  if(b.id==="chPlan"){draft={name:S.name};$("#hiName").textContent="Change your plan, "+S.name.split(" ")[0];$("#gender").value=S.gender;$("#age").value=S.age;$("#days").value=S.n;enterSetup(2)}
+  if(b.id==="chPlan"){draft={name:S.name,pin:S.pin};$("#newNote").textContent="";$("#hiName").textContent="Change your plan, "+S.name.split(" ")[0];$("#gender").value=S.gender;$("#age").value=S.age;$("#days").value=S.n;enterSetup(2)}
   if(b.id==="notMe"){
     if(!confirm("This clears the name and lifts saved on this phone. Your coach keeps what was already shared. Continue?"))return;
     try{localStorage.removeItem(KEY);localStorage.removeItem(KEY+":draft")}catch(x){}
@@ -679,7 +702,7 @@ function showAth(id){
     '<div class="card"><h3>Next-week targets</h3>'+targetsHTML(s.logs,u)+"</div>"+
     '<div class="card"><h3>Recent sets</h3>'+(recent||'<p class="empty">No lifts logged.</p>')+"</div>"+
     '<div class="card"><h3>Advice for '+esc(a.name.split(" ")[0])+'</h3><textarea id="advTxt" aria-label="Advice" placeholder="Write advice they will see on their Progress tab">'+esc(a.advice||"")+'</textarea><button class="btn" id="advSave" type="button">Send advice</button> <button class="btn ghost" id="advAI" type="button"'+(SAMPLE?"":" hidden")+'>Draft with AI</button><p class="mute" id="advStat" aria-live="polite"></p>'+
-    '<p style="margin:16px 0 0"><button class="linkbtn" id="rmAth" type="button">Remove this client and their data</button></p></div>';
+    '<p style="margin:16px 0 0"><button class="linkbtn" id="rstPin" type="button">Reset this client’s PIN</button> &nbsp; <button class="linkbtn" id="rmAth" type="button">Remove this client and their data</button></p></div>';
   try{$("#athDetail").scrollIntoView()}catch(e){}
 }
 $("#athList").addEventListener("click",e=>{const b=e.target.closest("[data-ath]");if(b)showAth(b.dataset.ath)});
@@ -694,6 +717,12 @@ $("#athDetail").addEventListener("click",async e=>{
     const s=athStats(a),t=await runAI(DRAFT_P+summarize(s.logs,s.d.unit||"lb",s.d),document.createElement("span"),b);
     if(t){$("#advTxt").value=t;$("#advStat").textContent="Draft ready. Edit it before sending."}else $("#advStat").textContent="The AI draft isn’t available right now.";
   }
+  if(b.id==="rstPin"){
+    const p=prompt("New 4-digit PIN for "+a.name+":");if(!p)return;
+    if(!/^\d{4}$/.test(p.trim())){$("#advStat").textContent="The PIN must be exactly 4 digits.";return}
+    try{await rpc("coach_reset_pin",{p_pass:CPASS,p_id:a.id,p_pin:p.trim()});$("#advStat").textContent="PIN reset. Tell "+a.name.split(" ")[0]+" their new PIN."}
+    catch(x){$("#advStat").textContent="Couldn’t reset the PIN."}
+  }
   if(b.id==="rmAth"){
     if(!confirm("Remove "+a.name+" and all their data? This can’t be undone."))return;
     try{await rpc("coach_delete",{p_pass:CPASS,p_id:a.id});ATH=ATH.filter(x=>x.id!==a.id);CUR=null;$("#athDetail").innerHTML="";renderCoach()}
@@ -706,9 +735,10 @@ $("#athDetail").addEventListener("click",async e=>{
   try{if(typeof claude!=="undefined"){SAMPLE=await claude.use("sample")}}catch(e){}
   if(TAB==="prog"&&SAMPLE)$("#aiBox").hidden=false;
 })();
-if(S.name&&S.plan){enterApp()}
+if(S.name&&S.plan&&(S.pin||!CLOUD)){enterApp()}
 else{
   if(S.name)$("#sName").value=S.name;
+  if(S.name&&S.plan&&CLOUD)$("#nameMsg").textContent="Choose a 4-digit PIN. It keeps your progress backed up and lets you log back in on any phone.";
   enterSetup(1);
 }
 </script>
